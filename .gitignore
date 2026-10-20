@@ -1,0 +1,5 @@
+# Arduino IDE "Export Compiled Binary" output inside example/sketch folders
+build/
+
+# Claude Code local session files
+.claude/
