@@ -51,9 +51,11 @@ with the same commands, lessons and driving quality as the C++ EVBot library.
 The engine uses only a small set of Arduino functions. Counted in `EVBot/src/internal`:
 `millis/micros/delay`, `pinMode/digitalWrite/digitalRead`, `Wire` (begin, setClock,
 beginTransmission, write, endTransmission, requestFrom, read, available),
-`Preferences` (getFloat, getString, putString), `timerBegin/timerAttachInterrupt/timerAlarm`,
+`Preferences` (begin, getFloat, end), `timerBegin/timerAttachInterrupt/timerAlarm`,
 `rgbLedWrite`, `analogReadMilliVolts`, `String`, and `Serial.print/println/printf`.
 Re-creating those on ESP-IDF is roughly 400 lines and leaves the library untouched.
+The full list, with the ESP-IDF function behind each one, is in
+`firmware/arduino_shim/SYMBOLS.md`.
 
 The alternatives are worse:
 - **Copying the engine** means every fix has to be made twice, and the copies drift apart.
@@ -379,6 +381,47 @@ then Program, then Live. **Done when:**
 | Teachers mixing up firmwares | Different BLE UUIDs, the page detects the C++ firmware, and INFO reports `fw=py`. |
 | Students' long `while True` loops without waits starving BLE | The MicroPython VM checks pending events regularly, so STOP still works. The teacher guide shows `robot.wait(0.05)` in loops. |
 
+## Phase 0 findings so far (2026-10-20, from reading the source)
+
+These come from reading the engine and MicroPython's esp32 port (master, around
+v1.29.0). Nothing has been built or run yet.
+
+- **Versions to pin.** MicroPython v1.29.0 (the latest release), on the ESP-IDF
+  version its README recommends, v5.5.5. That is the same IDF 5.5 line that
+  arduino-esp32 3.3.12 uses.
+- **Spike 3 is done on paper.** `firmware/arduino_shim/SYMBOLS.md` lists every
+  Arduino symbol the engine uses. The list is shorter than this plan first
+  said: Preferences needs only `begin/getFloat/end`.
+- **Spike 4 is answered by the source.** The esp32 port uses
+  `MICROPY_PY_BLUETOOTH_USE_SYNC_EVENTS`. BLE IRQ handlers run on the NimBLE
+  task, which is pinned to core 1 like the MicroPython task, and take the GIL
+  rather than waiting for the scheduler. So a STOP write is handled while C++
+  code blocks, as long as the shim's `delay()` releases the GIL. A test on the
+  car is still needed.
+- **New: tick rate.** MicroPython leaves FreeRTOS at 100 Hz, and Arduino uses
+  1000 Hz. The engine's `delay(1)` loops and the sensor task depend on 1 ms
+  ticks. `sdkconfig.board` sets `CONFIG_FREERTOS_HZ=1000`.
+- **Problem 1: there is no end-of-program hook.** The esp32 `main.c` has no
+  `MICROPY_BOARD_END_SOFT_RESET`, so design point 4 doesn't work as written.
+  Also, when `main.py` finishes, MicroPython drops to the REPL *without* a soft
+  reset. A car left in `drive()` would keep driving until the next reset.
+  (`gc_sweep_all()` does run C finalisers at a soft reset. That covers Ctrl-D,
+  but not a program that simply ends.)
+- **Problem 2: a soft reset drops Bluetooth.** `soft_reset_exit` calls
+  `mp_bluetooth_deinit()`. If RUN does a soft reset (as the BLE protocol
+  section says), every run disconnects the page. The page would then have to
+  reconnect and could miss the program's first messages.
+
+**Proposed fix for both (needs a decision):** don't soft-reset to run. A frozen
+helper `evbot_run.run("main.py")` runs the file in a fresh namespace inside
+`try/finally`, and the `finally` stops the car. RUN, over both BLE and USB,
+types that call into the raw REPL, the same way the USB path already works. BLE
+stays connected, and output starts at the first line. For power-on, `boot.py`
+(frozen) calls `evbot_run.run("main.py")` itself and then raises `SystemExit`,
+so MicroPython doesn't run `main.py` a second time. Thonny's Run button
+executes the script in the REPL, so Thonny users would add `robot.stop()` at
+the end, or the guide accepts that the car keeps going there.
+
 ## Answered (2026-10-20)
 
 - Module: N16R8 (16 MB flash, 8 MB octal PSRAM).
@@ -388,3 +431,7 @@ then Program, then Live. **Done when:**
 ## Still open
 
 - Which USB port the car's cable uses (native OTG or UART). Phase 0 finds out.
+- How to run a program: the `evbot_run` approach above, or soft reset plus page reconnect.
+- Build machine: this laptop has no Docker, no WSL distro and no ESP-IDF yet.
+  `build.sh` assumes Docker. The options are Docker Desktop, a WSL2 Ubuntu
+  install, or native ESP-IDF for Windows.
