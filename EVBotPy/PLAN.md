@@ -449,6 +449,15 @@ point 4 has the details. One idea from the first draft was dropped: having
 boot as a forced exit and soft-resets, so that would loop. A frozen `main.py`
 is used instead.
 
+- **First build works (2026-10-20).** It's stock MicroPython v1.29.0 plus the EVBOT_S3
+  board and the frozen `main.py`/`evbot_run.py`, with no engine yet. Checked in the
+  build's sdkconfig: 16 MB flash, octal PSRAM, 240 MHz, `FREERTOS_HZ=1000`, NimBLE on
+  core 1. The partition table matches `partitions.csv`. `micropython.bin` is 1.72 MB,
+  55% of a 3 MB app slot. The first try failed to link (`mp_module_string`) because of
+  MicroPython bug #19667: `BUILD=` on the make command line leaks into the mpy-cross
+  sub-make. `docker-build.sh` now uses the port's default build folder. Not flashed
+  to a car yet.
+
 ## Answered (2026-10-20)
 
 - Module: N16R8 (16 MB flash, 8 MB octal PSRAM).

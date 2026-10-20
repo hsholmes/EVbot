@@ -13,7 +13,13 @@ set -euo pipefail
 MPY_VERSION="$1"
 WITH_ENGINE="$2"
 BOARD_DIR=/evbot/EVBotPy/firmware/boards/EVBOT_S3
-BUILD=/build/out
+# The port's default build folder. Don't pass BUILD= to make: the mpy-cross
+# sub-make inherits it and leaks its own module list into the firmware
+# build ("undefined reference to mp_module_string", micropython#19667).
+BUILD=/build/micropython/ports/esp32/build-EVBOT_S3
+
+# Left over from an earlier version of this script, which did pass BUILD=.
+rm -rf /build/out
 
 cd /build
 if [ ! -d micropython/.git ]; then
@@ -29,7 +35,7 @@ fi
 make -C mpy-cross -j"$(nproc)"
 make -C ports/esp32 BOARD_DIR="$BOARD_DIR" submodules
 
-args=(BOARD_DIR="$BOARD_DIR" BUILD="$BUILD")
+args=(BOARD_DIR="$BOARD_DIR")
 if [ "$WITH_ENGINE" = 1 ]; then
   args+=(USER_C_MODULES=/evbot/EVBotPy/firmware/evbot_module/micropython.cmake)
 fi
