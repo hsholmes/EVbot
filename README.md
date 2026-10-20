@@ -1,6 +1,6 @@
 # EVBot
 
-Learn C++ by driving a real robot. EVBot is an Arduino library for grade 4–7 students, built for the Science Olympiad Electric Vehicle car (ESP32-S3).
+Learn C++ by driving a real robot. EVBot is an Arduino library for grade 4–7 students, built for the RHCircuits EVDrive kit.
 
 ```cpp
 #include <EVBot.h>
