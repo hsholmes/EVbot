@@ -42,7 +42,7 @@ with the same commands, lessons and driving quality as the C++ EVBot library.
         |
  ESP-IDF (the one MicroPython is built on)
 
- frozen Python: boot.py + evbot_ble.py   (BLE upload service, Python version)
+ frozen Python: main.py + evbot_run.py + evbot_ble.py   (program runner, BLE upload service)
  wireless_mp.cpp: stub for internal/Wireless.h (replaces Wireless.cpp)
 ```
 
@@ -94,14 +94,26 @@ another way (see "Output path" below).
    - Each later `robot.begin()` is quick: `stop()`, unlock the motors, `set_speed(MEDIUM)`,
      `reset_heading()`, `reset_distance()`, and show the blue "ready" light.
 
-4. **The car stops when a program ends.** The board's `MICROPY_BOARD_END_SOFT_RESET` hook
-   calls `stop()`. This covers a normal finish, an error, Ctrl-C or the STOP button, and
-   matters most after `drive()` / `spin_left()`, which keep going on their own. In C++
-   the car keeps driving after `setup()` ends; in Python it stops. The teacher guide
-   documents this difference.
+4. **The car stops when a program ends** (decided 2026-10-20). Programs are run by
+   a frozen helper, `evbot_run.run("main.py")`. It reads the file, runs it in a
+   fresh namespace inside `try/finally`, and the `finally` stops the car. There is no
+   soft reset, so Bluetooth stays connected (see "Phase 0 findings"). This covers a
+   normal finish, an error, Ctrl-C or the STOP button, and matters most after
+   `drive()` / `spin_left()`, which keep going on their own. In C++ the car keeps
+   driving after `setup()` ends; in Python it stops. The teacher guide documents
+   this difference.
+   - **Run from the page** (Bluetooth or USB): the page writes `main.py`, then types
+     `import evbot_run; evbot_run.run("main.py")` into the raw REPL.
+   - **Power-on and Ctrl-D:** `pyexec_file_if_exists("main.py")` looks for a frozen
+     `main.py` before the file on the car. The firmware freezes a two-line `main.py`
+     that starts BLE and calls `evbot_run.run("main.py")`. `open()` reads the
+     student's file on the car, so it keeps the usual name, and nothing runs twice.
+   - **Thonny's Run button** executes the editor's script straight in the REPL,
+     without `evbot_run`. A `drive()` left running there keeps going until Stop. The
+     guide says so.
 
 5. **Output and input path (one terminal for USB and Bluetooth).** The shim's `Serial`
-   writes to MicroPython stdout, which already goes to USB. `boot.py` also attaches a
+   writes to MicroPython stdout, which already goes to USB. `evbot_ble` also attaches a
    BLE stream with `os.dupterm` once an authorised page subscribes:
    - **Out:** stdout goes to the LOG notify characteristic. `print()`, `robot.say()`,
      "Oops!" messages, tracebacks and the REPL prompt all travel the same way.
@@ -132,8 +144,8 @@ another way (see "Output path" below).
 8. **Live tab = REPL with a ready robot.** When the Live tab opens, the page quietly
    sends `from evbot import *; robot = EVBot(); robot.begin()`. The student then types
    `robot.forward(20)` or `robot.light(RED)`. The engine is already running, so
-   `begin()` is instant. The REPL never soft-resets between lines, so the end-of-program
-   stop hook doesn't fire. Instead, Stop and Esc send Ctrl-C followed by
+   `begin()` is instant. Live lines don't go through `evbot_run`, so nothing stops the
+   car between lines. Instead, Stop and Esc send Ctrl-C followed by
    `robot.stop()`.
 
 ## Python API (same as C++, in Python naming style)
@@ -176,7 +188,7 @@ EVBotPy/
     boards/EVBOT_S3/          board.json, mpconfigboard.{h,cmake}, sdkconfig.board, partitions.csv
     evbot_module/             micropython.cmake, modevbot.cpp, wireless_mp.cpp
     arduino_shim/             Arduino.h, Wire.h, Preferences.h, WString.h, shim .cpp files
-    frozen/                   boot.py, evbot_ble.py (incl. dupterm BLE stream), manifest.py
+    frozen/                   main.py (starts BLE, then evbot_run), evbot_run.py, evbot_ble.py (incl. dupterm BLE stream), manifest.py
     build.sh                  docker run espressif/idf:<pinned> ... (Windows: Docker Desktop or WSL2)
     dist/                     built .bin for teachers (bootloader, partitions, app, or one merged image)
   examples/                   01_hello_light.py ... 13_my_steering.py, teacher_car_check.py, teacher_car_setup.py, teacher_beep_test.py
@@ -196,7 +208,7 @@ flash Python".
 
 | Characteristic | Direction | Contents |
 |---|---|---|
-| CMD | write | `PIN:<pin>`, `INFO`, `FILE_BEGIN:<name>:<bytes>`, `FILE_END:<crc32>`, `RUN`, `STOP`, `GET:<name>`, `LS`, `RESTART` |
+| CMD | write | `PIN:<pin>`, `INFO`, `FILE_BEGIN:<name>:<bytes>`, `FILE_END:<crc32>`, `STOP`, `GET:<name>`, `LS`, `RESTART` |
 | DATA | write / write without response | file bytes |
 | STATUS | notify | `AUTH:OK/BAD`, `INFO:name=..;ver=..;fw=py`, `FILE:READY`, `FILE:ACK:<n>`, `FILE:OK`, `FILE:ERR:<text>`, `RUNNING`, `STOPPED`, `DONE`, `ERROR` |
 | LOG | notify | stdout (`print`, `say`, tracebacks, REPL output) |
@@ -204,9 +216,17 @@ flash Python".
 
 Every command except `PIN` and `INFO` needs the PIN first, on each connection, as in C++.
 
-- `RUN` saves the file as `main.py` and does a soft reset.
+- There is no `RUN` command. To run, the page sends `FILE_BEGIN:main.py`... and then
+  types `evbot_run.run("main.py")` into the raw REPL over TERM, exactly as it does
+  over USB. `evbot_run` reports `RUNNING` and then `DONE` / `STOPPED` / `ERROR` on
+  STATUS when BLE is up.
 - `STOP` calls `evbot._emergency_stop()` (C: motor lockout, then
   `mp_sched_keyboard_interrupt()`).
+- The TERM write handler checks for 0x03 itself and does the same as `STOP`. A
+  running program doesn't read stdin, so Ctrl-C would otherwise wait in the
+  dupterm buffer. USB CDC already handles Ctrl-C in its receive interrupt.
+- A soft reset (`RESTART`, or Ctrl-D) still drops BLE (`mp_bluetooth_deinit`).
+  The page reconnects as the C++ page does after an upload.
 
 Programs are only a few KB, so an upload takes under a second. There is no firmware OTA
 over BLE in the first version.
@@ -219,7 +239,7 @@ ways work:
 1. **The same page over USB.** It has a "Connect: Bluetooth | USB" switch, and USB uses
    Web Serial. The page talks to MicroPython's raw REPL, as mpremote does:
    - write the file with `open('main.py','w').write(...)`, in chunks;
-   - run it with a soft reset (Ctrl-D);
+   - run it with `evbot_run.run("main.py")`, the same call as over Bluetooth;
    - stop it with Ctrl-C.
 
    No PIN is asked for, because having the cable is enough. The Program and Live tabs,
@@ -309,7 +329,9 @@ missing symbols is known.
 - Bind every command in the table above, including the quick re-`begin()`.
 - Make the `delay()` interrupt point work, and check that every blocking move ends
   quickly under lockout: forward, backward, turns, arcs, beep, gyro re-zero.
-- Add the end-of-program stop hook and argument type checks.
+- Add `evbot._program_end()`, which `evbot_run` calls in its `finally`. It ends free
+  driving, stops the wheels and does nothing before the first `begin()`. Also add
+  the argument type checks.
 
 **Done when** each of these stops the car within about 100 ms and leaves it ready for the
 next run:
@@ -322,10 +344,10 @@ next run:
 ### Phase 3 - BLE service (Python, frozen)
 
 - Write `evbot_ble.py` with the protocol above: name/PIN from NVS `evbot`, file write with
-  a CRC check, RUN/STOP/GET/LS.
+  a CRC check, STOP/GET/LS.
 - Add the dupterm BLE stream (LOG out, TERM in), which gives a full REPL over Bluetooth.
-- `boot.py` starts BLE only when WL_SW is on (checked every 0.5 s, as in C++). It must
-  never block `main.py`.
+- The frozen `main.py` starts BLE only when WL_SW is on (checked every 0.5 s, as in C++),
+  then calls `evbot_run.run("main.py")`. Starting BLE must never block the program.
 
 **Done when:**
 - the page-less test (nRF Connect, or a small script) can upload, run, stop and read
@@ -412,15 +434,11 @@ v1.29.0). Nothing has been built or run yet.
   section says), every run disconnects the page. The page would then have to
   reconnect and could miss the program's first messages.
 
-**Proposed fix for both (needs a decision):** don't soft-reset to run. A frozen
-helper `evbot_run.run("main.py")` runs the file in a fresh namespace inside
-`try/finally`, and the `finally` stops the car. RUN, over both BLE and USB,
-types that call into the raw REPL, the same way the USB path already works. BLE
-stays connected, and output starts at the first line. For power-on, `boot.py`
-(frozen) calls `evbot_run.run("main.py")` itself and then raises `SystemExit`,
-so MicroPython doesn't run `main.py` a second time. Thonny's Run button
-executes the script in the REPL, so Thonny users would add `robot.stop()` at
-the end, or the guide accepts that the car keeps going there.
+**Decided (2026-10-20): run through `evbot_run`, never by soft reset.** Design
+point 4 has the details. One idea from the first draft was dropped: having
+`boot.py` raise `SystemExit` to skip `main.py`. `pyexec` treats `SystemExit` in
+boot as a forced exit and soft-resets, so that would loop. A frozen `main.py`
+is used instead.
 
 ## Answered (2026-10-20)
 
@@ -431,7 +449,6 @@ the end, or the guide accepts that the car keeps going there.
 ## Still open
 
 - Which USB port the car's cable uses (native OTG or UART). Phase 0 finds out.
-- How to run a program: the `evbot_run` approach above, or soft reset plus page reconnect.
 - Build machine: this laptop has no Docker, no WSL distro and no ESP-IDF yet.
   `build.sh` assumes Docker. The options are Docker Desktop, a WSL2 Ubuntu
   install, or native ESP-IDF for Windows.
