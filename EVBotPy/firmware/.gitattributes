@@ -1,0 +1,5 @@
+# Everything here is read inside the Linux build container: bash, Kconfig
+# (sdkconfig) and the partition tool break on Windows CRLF line endings.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bin binary

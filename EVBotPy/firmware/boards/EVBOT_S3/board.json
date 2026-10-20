@@ -1,0 +1,15 @@
+{
+    "deploy": [],
+    "docs": "",
+    "features": [
+        "BLE",
+        "External Flash",
+        "External RAM"
+    ],
+    "images": [],
+    "mcu": "esp32s3",
+    "product": "EVBot car (ESP32-S3 N16R8)",
+    "thumbnail": "",
+    "url": "https://github.com/hsholmes/EVbot",
+    "vendor": "EVBot"
+}

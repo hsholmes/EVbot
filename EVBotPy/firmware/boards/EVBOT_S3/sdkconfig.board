@@ -1,0 +1,16 @@
+# EVBotPy: settings on top of MicroPython's ESP32-S3 defaults.
+
+# 16 MiB flash and the Arduino-compatible partition table. The path is the
+# one inside the build container (docker-build.sh mounts this repo at /evbot).
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="/evbot/EVBotPy/firmware/boards/EVBOT_S3/partitions.csv"
+
+# 1 ms ticks, as in Arduino. The engine's delay(1) loops and its sensor task
+# (vTaskDelay(1), ~400 gyro reads a second) depend on it. MicroPython
+# leaves the IDF default of 100 Hz.
+CONFIG_FREERTOS_HZ=1000
+
+# Car name shown before the BLE service sets its own.
+CONFIG_BT_NIMBLE_SVC_GAP_DEVICE_NAME="EVBot"

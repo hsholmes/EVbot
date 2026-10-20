@@ -3,3 +3,6 @@ build/
 
 # Claude Code local session files
 .claude/
+
+# EVBotPy firmware build output (build.ps1)
+EVBotPy/firmware/build-out/

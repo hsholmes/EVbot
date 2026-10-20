@@ -131,8 +131,10 @@ another way (see "Output path" below).
    - the car name and PIN in the `evbot` namespace, readable from Python with
      `esp32.NVS`.
 
-   Layout: `nvs` (0x9000, 24 KB), `otadata`, `phy_init`, `ota_0` 3 MB, `ota_1` 3 MB, then
-   `vfs` for the remaining ~9.9 MB. Firmware OTA is not in version 1. The two app slots
+   Layout (`firmware/boards/EVBOT_S3/partitions.csv`): the same as Arduino's
+   "16M Flash (3MB APP/9.9MB FATFS)" scheme. That is `nvs` (0x9000, 20 KB = 0x5000, as in
+   every Arduino scheme), `otadata` (0xe000), `ota_0` 3 MB, `ota_1` 3 MB, then `vfs` for
+   the remaining ~9.9 MB. There is no `phy_init`, as in Arduino. Firmware OTA is not in version 1. The two app slots
    are reserved now anyway: changing the partition table later would wipe every
    student's files.
 
@@ -189,8 +191,10 @@ EVBotPy/
     evbot_module/             micropython.cmake, modevbot.cpp, wireless_mp.cpp
     arduino_shim/             Arduino.h, Wire.h, Preferences.h, WString.h, shim .cpp files
     frozen/                   main.py (starts BLE, then evbot_run), evbot_run.py, evbot_ble.py (incl. dupterm BLE stream), manifest.py
-    build.sh                  docker run espressif/idf:<pinned> ... (Windows: Docker Desktop or WSL2)
-    dist/                     built .bin for teachers (bootloader, partitions, app, or one merged image)
+    build.ps1                 docker run espressif/idf:v5.5.2 (Docker Desktop); MicroPython v1.29.0
+    docker-build.sh           what build.ps1 runs inside the container
+    build-out/                local build output (gitignored)
+    dist/                     released .bin parts for teachers (bootloader, partition table, otadata, app)
   examples/                   01_hello_light.py ... 13_my_steering.py, teacher_car_check.py, teacher_car_setup.py, teacher_beep_test.py
   extras/
     EVBotPyUploader.html      student page (Web Bluetooth)
@@ -287,8 +291,8 @@ Bluetooth or Web Serial. It has:
 ### Phase 0 - check it can work (spikes, no student code)
 
 1. The module is an N16R8. Confirm it with `esptool flash_id`, and find out which USB
-   port the car's cable uses (native OTG or UART). Pick the MicroPython release and its
-   IDF version, and pin both in `build.sh`.
+   port the car's cable uses (native OTG or UART). The MicroPython release and the IDF
+   version are pinned in `build.ps1`.
 2. Build stock MicroPython for ESP32_GENERIC_S3 (SPIRAM_OCT) with the custom 16 MB
    partition table, and flash it. Check:
    - the REPL over USB in Thonny;
@@ -384,8 +388,11 @@ then Program, then Live. **Done when:**
 
 ### Phase 6 - flasher and release
 
-- `EVBotPyFlasher.html`: esptool-js over Web Serial flashes the merged image at 0x0 from a
-  file the teacher picks. It must not erase NVS.
+- `EVBotPyFlasher.html`: esptool-js over Web Serial flashes the four parts at the offsets
+  in `flash-offsets.txt`, from files the teacher picks. **Never the merged
+  `firmware.bin`**: MicroPython's `makeimg.py` fills 0x9000-0x10000 with 0xFF, which
+  wipes NVS (the calibration and car name/PIN). `ota_data_initial.bin` resets
+  `otadata`, in case a C++ Bluetooth upload left the car booting from `ota_1`.
 - Switching back to C++ is a normal Arduino IDE upload over USB.
 - Commit the built images to `firmware/dist/` with a version number. `INFO` reports the
   version, and the page warns if the version is old.
@@ -408,9 +415,11 @@ then Program, then Live. **Done when:**
 These come from reading the engine and MicroPython's esp32 port (master, around
 v1.29.0). Nothing has been built or run yet.
 
-- **Versions to pin.** MicroPython v1.29.0 (the latest release), on the ESP-IDF
-  version its README recommends, v5.5.5. That is the same IDF 5.5 line that
-  arduino-esp32 3.3.12 uses.
+- **Versions pinned.** MicroPython v1.29.0 (the latest release), on the ESP-IDF
+  version that release's README recommends, v5.5.2 (`espressif/idf:v5.5.2`).
+  That is the same IDF 5.5 line that arduino-esp32 3.3.12 uses. (MicroPython's
+  master branch now recommends v5.5.5. Move up together with the next MicroPython
+  release.)
 - **Spike 3 is done on paper.** `firmware/arduino_shim/SYMBOLS.md` lists every
   Arduino symbol the engine uses. The list is shorter than this plan first
   said: Preferences needs only `begin/getFloat/end`.
@@ -448,7 +457,13 @@ is used instead.
 
 ## Still open
 
-- Which USB port the car's cable uses (native OTG or UART). Phase 0 finds out.
-- Build machine: this laptop has no Docker, no WSL distro and no ESP-IDF yet.
-  `build.sh` assumes Docker. The options are Docker Desktop, a WSL2 Ubuntu
-  install, or native ESP-IDF for Windows.
+- Which USB port the car's cable uses (native OTG or UART). It matters less now: the
+  board turns on the REPL on both. The flashing instructions still need to know.
+
+## Build machine (decided 2026-10-20)
+
+Docker Desktop on Windows, with `firmware/build.ps1`. The MicroPython checkout and
+the build folder live in the Docker volume `evbotpy-build`, which is faster than a
+shared Windows folder. Output goes to `firmware/build-out/`. `firmware/.gitattributes`
+keeps LF line endings, because the container's bash, Kconfig and partition tool fail
+on CRLF.
