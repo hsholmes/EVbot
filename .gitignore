@@ -6,3 +6,6 @@ build/
 
 # EVBotPy firmware build output (build.ps1)
 EVBotPy/firmware/build-out/
+
+# Flash backups of real cars (NVS holds each car's Bluetooth PIN)
+EVBotPy/firmware/car-backups/

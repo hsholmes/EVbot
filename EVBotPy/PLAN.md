@@ -455,8 +455,32 @@ is used instead.
   core 1. The partition table matches `partitions.csv`. `micropython.bin` is 1.72 MB,
   55% of a 3 MB app slot. The first try failed to link (`mp_module_string`) because of
   MicroPython bug #19667: `BUILD=` on the make command line leaks into the mpy-cross
-  sub-make. `docker-build.sh` now uses the port's default build folder. Not flashed
-  to a car yet.
+  sub-make. `docker-build.sh` now uses the port's default build folder.
+- **Flashed to a car and checked (2026-10-21, car MAC 28:84:85:45:f5:40).**
+  - `esptool flash-id`: ESP32-S3 rev 0.2, 16 MB flash, 8 MB in-package PSRAM. It is an
+    N16R8.
+  - Flashed the four parts at 115200 baud, and the hash was verified.
+  - On the REPL:
+    - the banner prints `EVBot car (ESP32-S3 N16R8)`;
+    - the frozen `main.py` + `evbot_run` print "No program on the robot yet";
+    - 240 MHz;
+    - **8120 KB heap (the PSRAM works)**;
+    - the partitions are as designed, running from `ota_0`;
+    - the 10 MB file system was formatted on first boot;
+    - BLE is active and advertising.
+  - **The NVS calibration survived the switch.** `scioly_ev`: `ticks_per_m` 17168,
+    `kp_heading` 50, `kx_xtrack` 20, `kp_enc` 5, read with `esp32.NVS.get_blob` as
+    4-byte floats.
+  - **New: `esp32.NVS` can't read strings.** Arduino `putString` stores `evbot/car_name`
+    and `pin` as NVS strings, and MicroPython's `esp32.NVS` has only int and blob
+    getters (`ESP_ERR_NVS_NOT_FOUND`). The evbot C module needs a small
+    `nvs_get_str` helper for `evbot_ble` (phase 3).
+  - **USB:** the car board has two USB sockets. The UART one (CP210x, here COM12) and
+    the native one (USB Serial/JTAG, COM3 earlier) both give the REPL. Full-flash reads
+    through a USB hub failed with "Corrupt data". Flash with the car plugged straight
+    into the laptop.
+  - Backups are in `firmware/car-backups/` (gitignored): this car's NVS before the
+    switch.
 
 ## Answered (2026-10-20)
 
@@ -466,8 +490,8 @@ is used instead.
 
 ## Still open
 
-- Which USB port the car's cable uses (native OTG or UART). It matters less now: the
-  board turns on the REPL on both. The flashing instructions still need to know.
+- Spike 4 on the car (STOP gets through while C++ blocks). It needs the engine, so
+  it moves into phase 1.
 
 ## Build machine (decided 2026-10-20)
 
