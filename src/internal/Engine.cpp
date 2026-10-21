@@ -25,7 +25,8 @@ Tuning tuning = {
   200,                              // debugIntervalMs
   30.0,                             // turnKp
   0.15,                             // turnMaxMps
-  2                                 // beepSwing: all of 1-16 were audible on the car (BeepTest, 2026-10-20); 2 is louder than 1 and barely moves the car
+  2,                                // beepSwing: all of 1-16 were audible on the car (BeepTest, 2026-10-20); 2 is louder than 1 and barely moves the car
+  2000                              // disarmAfterMs: off 2 s after the last move
 };
 
 namespace engine {
@@ -48,6 +49,7 @@ void sensorTask(void*) {
     if (steppers::running()) lastMovingMs = millis();
     gyro::serviceRezero();
     gyro::update(millis() - lastMovingMs < HEADING_FREEZE_AFTER_MS);
+    steppers::autoDisarm(tuning.disarmAfterMs);
     encoders::update();
     board::serviceLowBatteryLed();
     vTaskDelay(1);

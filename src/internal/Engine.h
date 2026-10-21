@@ -28,6 +28,7 @@ struct Tuning {
   float turnKp;         // turn wheel speed (st/s) per degree still to go - sets how early a turn slows down
   float turnMaxMps;     // fastest wheel speed while turning
   int beepSwing;        // beep(): microsteps the motors shake each way - bigger is louder
+  unsigned long disarmAfterMs;  // motors switch off after this long without moving (0 = never)
 };
 
 extern Tuning tuning;

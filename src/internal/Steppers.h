@@ -53,9 +53,14 @@ void tone(float hz, unsigned long ms, int swing);
 void lockout(bool on);
 bool lockedOut();
 
-// Driver enable (holding torque). Motors stay enabled between moves.
+// Driver enable (holding torque). Off at power-on; every move turns it on.
 void enable(bool on);
 bool enabled();
+
+// Turn the drivers off once the wheels have been still for idleMs (0 = never).
+// Called by the sensor task on every pass. Saves battery and heat after a
+// program finishes, while short pauses between moves keep holding.
+void autoDisarm(unsigned long idleMs);
 
 long leftSteps();  // steps since the last start()
 long rightSteps();

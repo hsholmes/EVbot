@@ -149,6 +149,7 @@ When a student makes a mistake the car can catch, it prints a message starting w
 - A **gyro** measures turning. It keeps the car pointing straight while driving, and turns are measured with it, not guessed.
 - The car **ramps** its speed up and down so the wheels don't slip.
 - **Mistakes don't add up.** Each turn is measured from where the car *should* be pointing, not where it ended up, so a square closes even after many turns.
+- **Motors switch off when idle.** The motors are off at power-on and switch off 2 seconds after the last move, so a finished program doesn't drain the battery or heat the motors. The wheels then turn freely by hand; the next move switches them back on. (Teachers: `evbot::tuning.disarmAfterMs`, 0 = always on.)
 - **Moving the car by hand.** While parked, the car ignores slow gyro drift, so a car picked up and put down drives the way it now points.
 
 ## 8. Teacher tools and settings

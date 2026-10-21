@@ -35,7 +35,14 @@ volatile long rightTotalSteps = 0;
 volatile float activeAccel = 0;
 volatile bool leftSnapDown = false;
 volatile bool rightSnapDown = false;
-bool motorsEnabled = false;
+volatile bool motorsEnabled = false;
+// Motors are switched off at power-on and after a while without moving
+// (autoDisarm), to save battery and keep the drivers and motors cool. Every
+// move switches them back on. enable() and autoDisarm() run on different
+// tasks, so both change the EN pins inside this lock - otherwise an
+// auto-disarm could land just after a move switched the motors on.
+portMUX_TYPE enableLock = portMUX_INITIALIZER_UNLOCKED;
+volatile unsigned long lastActiveMs = 0;  // last time the motors were switched on or were stepping
 volatile bool locked = false;
 
 // Tone mode (beep): the wheel's DIR pin flips after every toneSwing steps, so
@@ -132,7 +139,7 @@ bool begin() {
   setDirections(true, true);
   pinMode(LEFT_EN_PIN, OUTPUT);
   pinMode(RIGHT_EN_PIN, OUTPUT);
-  enable(true);
+  enable(false);  // off until the first move
 
   const esp_timer_create_args_t slewTimerArgs = {
     .callback = &slewTimerCallback,
@@ -234,9 +241,28 @@ void lockout(bool on) {
 bool lockedOut() { return locked; }
 
 void enable(bool on) {
+  bool wasOn = motorsEnabled;
+  portENTER_CRITICAL(&enableLock);
   motorsEnabled = on;
-  digitalWrite(LEFT_EN_PIN, on ? LOW : HIGH);
-  digitalWrite(RIGHT_EN_PIN, on ? LOW : HIGH);
+  if (on) lastActiveMs = millis();
+  gpio_set_level((gpio_num_t)LEFT_EN_PIN, on ? 0 : 1);  // EN is active-low
+  gpio_set_level((gpio_num_t)RIGHT_EN_PIN, on ? 0 : 1);
+  portEXIT_CRITICAL(&enableLock);
+  if (on && !wasOn) delay(2);  // let the drivers power the coils before the first step
+}
+
+void autoDisarm(unsigned long idleMs) {
+  if (idleMs == 0) return;  // 0 = keep the motors on
+  unsigned long now = millis();
+  portENTER_CRITICAL(&enableLock);
+  if (leftRunning || rightRunning) {
+    lastActiveMs = now;
+  } else if (motorsEnabled && now - lastActiveMs >= idleMs) {
+    motorsEnabled = false;
+    gpio_set_level((gpio_num_t)LEFT_EN_PIN, 1);
+    gpio_set_level((gpio_num_t)RIGHT_EN_PIN, 1);
+  }
+  portEXIT_CRITICAL(&enableLock);
 }
 
 bool enabled() { return motorsEnabled; }

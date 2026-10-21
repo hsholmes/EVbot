@@ -31,7 +31,7 @@ struct MoveReport {
 
 // Drive distanceM (> 0) forward or backward at up to cruiseMps along the line
 // pointing at holdHeadingDeg (gyro heading, + = left), and wait until the car
-// has stopped. Motors stay enabled afterwards (holding torque).
+// has stopped. Motors keep holding until the idle auto-disarm (Steppers.h).
 // MoveReport::headingErrDeg is relative to holdHeadingDeg.
 MoveReport driveStraight(float distanceM, float cruiseMps, bool forward, float holdHeadingDeg);
 
