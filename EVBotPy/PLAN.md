@@ -512,8 +512,17 @@ is used instead.
   | `backward(20)` | 1.93 s | | 0.01 cm |
 
   Turns are within 0.1 deg, against 0.3 deg in the C++ SquareTest.
-- Still to do for phase 1: a square test at MEDIUM with a check of the physical
-  distance/turn and the low-speed shiver, and pulse spacing if a scope is available.
+- **Square test (MEDIUM, 4 x forward(40) + turn_right(90)), 18.0 s:**
+  - every side took 2.53 s and every turn 1.95-2.01 s, steady from side to side;
+  - turns ended at 90.17 / 180.12 / 270.09 / 360.11 deg, so each was within 0.17 deg
+    and they don't add up;
+  - straights held their heading within 0.3 deg;
+  - the odometer read 160.05 cm for 160 cm.
+- **Physically:** the car ended within about 1-2 cm of the start mark, pointing the same
+  way. It drove smoothly with no shiver.
+- **Phase 1 is done (2026-10-22).** Only the pulse-spacing check on a scope or logic
+  analyser is left, and it's optional; do it if one turns up. That includes measuring
+  pulse gaps during a file save, from the risk table.
 
 ## Answered (2026-10-20)
 
