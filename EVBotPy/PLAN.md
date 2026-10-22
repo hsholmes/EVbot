@@ -566,6 +566,50 @@ is used instead.
   - Ctrl-C at the bare REPL leaves a `drive()` running, by design, so Live's Stop sends
     `robot.stop()` as well.
 
+## Phase 3 results (2026-10-22)
+
+- **`frozen/evbot_ble.py`** has the protocol above:
+  - service `6e7e0101-5ad1-4c1e-9b1a-0e0b0e0b0001`, characteristics `...0102` CMD, `0103`
+    DATA (also notify, for GET), `0104` STATUS, `0105` LOG, `0106` TERM;
+  - `RESTART` = `machine.reset()`; the gyro then quick-calibrates, since it is a software
+    reset;
+  - name and PIN come from NVS `evbot` (fallback `EVBot-XXXX` from the MAC, PIN `0000`);
+  - it follows the WL_SW switch through a pin IRQ;
+  - `set_identity(name, pin)` is there for the teacher setup script.
+- **New evbot C helpers:**
+  - `_nvs_str` / `_nvs_set_str`: Arduino stores the name and PIN as NVS strings;
+  - `_emergency_stop()`: lockout, plus `mp_sched_keyboard_interrupt()` only while code
+    runs (`mp_interrupt_char != -1`);
+  - `_wheels_turning()`;
+  - `_ble_mtu(conn)`: NimBLE `ble_att_mtu()`, because MicroPython's MTU event didn't
+    always arrive on Windows, the same as in C++;
+  - `_idle_ms()`: waits for BLE buffers without running pending exceptions inside the
+    dupterm write.
+- **The terminal** uses `os.dupterm`:
+  - `readinto` returns `None` when it's empty (0 would detach the terminal);
+  - TERM catches 0x03 itself while code runs, because a running program never reads
+    stdin.
+- **Tested with a PC client** (bleak, the page's view):
+  - found by service UUID; the C++ UUID is absent;
+  - INFO works before the PIN; LS is refused before the PIN; a wrong PIN is refused;
+  - upload of 183 B took 90-190 ms; **upload + run 0.41 s**;
+  - RUNNING -> DONE, and all output arrived;
+  - a bad name and a bad CRC are refused; LS works; GET returned identical bytes;
+  - upload is refused while a program runs; STOP ended the program in 117-181 ms;
+  - the REPL answers `1+1`;
+  - Ctrl-C over TERM broke a busy loop in 74-110 ms.
+  - Burst output: 80 of 80 lines after the fixes; 2 were lost before the 2 ms retry.
+- **For phase 4:**
+  - Windows can deliver STATUS and LOG notifications out of order, so DONE may come
+    before the last output lines. The page should keep showing output that arrives after
+    DONE.
+  - The raw REPL mode is shared with USB. The page should send Ctrl-B when it's done.
+  - Device names come from the GAP name / scan response; bleak sometimes reports None
+    while scanning.
+- Ctrl-C over TERM during `robot.forward(200)` at MEDIUM: stopped, 112 ms round trip
+  from the PC, after 10.3 cm.
+- **Phase 3 is done (2026-10-22).** Every "done when" item passed.
+
 ## Answered (2026-10-20)
 
 - Module: N16R8 (16 MB flash, 8 MB octal PSRAM).

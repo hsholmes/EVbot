@@ -10,7 +10,14 @@
 extern "C" {
 #endif
 
-void evbot_glue_begin(void);
+// ble_on: Bluetooth is running, so relight the wireless LED after the first
+// start (the engine's board setup switches it off).
+void evbot_glue_begin(bool ble_on);
+
+// The page's STOP, or Ctrl-C over Bluetooth: lock the wheels out now, from
+// any task. False if the engine hasn't started.
+bool evbot_glue_emergency_stop(void);
+bool evbot_glue_wheels_turning(void);
 
 // A Ctrl-C (or STOP) locks the wheels out so the C++ move that was running
 // ends. Every new move calls this first: the interrupted one is over.

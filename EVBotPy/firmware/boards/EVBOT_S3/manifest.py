@@ -4,3 +4,4 @@ include("$(PORT_DIR)/boards/manifest.py")
 
 module("main.py", base_path="$(BOARD_DIR)/../../frozen")
 module("evbot_run.py", base_path="$(BOARD_DIR)/../../frozen")
+module("evbot_ble.py", base_path="$(BOARD_DIR)/../../frozen")

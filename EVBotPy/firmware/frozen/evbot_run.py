@@ -14,6 +14,10 @@
 import gc
 import sys
 
+# True while a program runs; evbot_ble refuses uploads then (writing flash
+# pauses the motors' step interrupts).
+running = False
+
 
 def _status(text):
     # Tell the page (if one is connected over Bluetooth) how the run went.
@@ -39,6 +43,7 @@ def _stop_car():
 
 
 def run(path="main.py"):
+    global running
     try:
         with open(path) as f:
             source = f.read()
@@ -51,6 +56,7 @@ def run(path="main.py"):
     # can link the line in the editor.
     scope = {"__name__": "__main__", "__file__": path}
     gc.collect()
+    running = True
     _status("RUNNING")
     result = "DONE"
     try:
@@ -64,6 +70,7 @@ def run(path="main.py"):
         result = "ERROR"
         sys.print_exception(e)
     finally:
+        running = False
         _stop_car()
         _status(result)
         scope = None

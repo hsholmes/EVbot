@@ -13,6 +13,7 @@
 
 #include <string>
 
+#include "evbot_config.h"
 #include "internal/Gyro.h"
 #include "internal/Steppers.h"
 #include "evbot_glue.h"
@@ -58,10 +59,11 @@ extern "C" void arduino_shim_interrupt_pending(void) {
 
 extern "C" {
 
-void evbot_glue_begin(void) {
+void evbot_glue_begin(bool ble_on) {
   if (!engineStarted) {
     robot.begin();  // full start: ~7 s of gyro calibration after power-on
     engineStarted = true;
+    if (ble_on) digitalWrite(evbot::config::WL_LED_PIN, HIGH);
     return;
   }
   // Quick start for every later program: the engine is already running.
@@ -74,6 +76,14 @@ void evbot_glue_begin(void) {
   robot.statusLight(BLUE);
   Serial.println("[EVBot] Ready!");
 }
+
+bool evbot_glue_emergency_stop(void) {
+  if (!engineStarted) return false;
+  evbot::steppers::lockout(true);
+  return true;
+}
+
+bool evbot_glue_wheels_turning(void) { return engineStarted && evbot::steppers::running(); }
 
 void evbot_glue_clear_interrupt(void) {
   if (engineStarted) evbot::steppers::lockout(false);

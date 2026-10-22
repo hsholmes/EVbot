@@ -12,6 +12,10 @@
 
 #include "py/mphal.h"
 #include "py/runtime.h"
+#include "extmod/modbluetooth.h"
+#include "shared/runtime/interrupt_char.h"
+#include "nvs.h"
+#include "host/ble_att.h"
 #include "evbot_glue.h"
 
 // ---------- helpers ----------
@@ -67,7 +71,7 @@ static mp_obj_t evbot_make_new(const mp_obj_type_t *type, size_t n_args, size_t 
 
 static mp_obj_t evbot_begin(size_t n_args, const mp_obj_t *args) {
     check_count(n_args, 0, 0, "begin()");
-    evbot_glue_begin();
+    evbot_glue_begin(mp_bluetooth_is_active());
     raise_if_interrupted();
     return mp_const_none;
 }
@@ -311,10 +315,96 @@ static mp_obj_t evbot_program_end(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(evbot_program_end_obj, evbot_program_end);
 
+// For evbot_ble (the page's STOP button, and Ctrl-C over Bluetooth). Safe
+// from the Bluetooth task. Locks the wheels out and, if Python code is
+// running, interrupts it - the same as Ctrl-C on USB. Returns True if it
+// interrupted running code: then a Ctrl-C byte has been dealt with and must
+// not also be typed into the prompt.
+static mp_obj_t evbot_emergency_stop(void) {
+    evbot_glue_emergency_stop();
+    if (mp_interrupt_char == -1) {
+        return mp_const_false;  // nothing running: the prompt is waiting for input
+    }
+    mp_sched_keyboard_interrupt();
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(evbot_emergency_stop_obj, evbot_emergency_stop);
+
+// Uploads are refused while the wheels turn: writing flash pauses the step
+// interrupts (PLAN.md, design point 7).
+static mp_obj_t evbot_wheels_turning(void) {
+    return mp_obj_new_bool(evbot_glue_wheels_turning());
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(evbot_wheels_turning_obj, evbot_wheels_turning);
+
+// The connection's real ATT MTU. MicroPython only reports it in an event,
+// which doesn't always arrive (the C++ firmware saw the same on Windows), so
+// ask NimBLE each time, as the C++ version does.
+static mp_obj_t evbot_ble_mtu(mp_obj_t conn_in) {
+    uint16_t mtu = ble_att_mtu((uint16_t)mp_obj_get_int(conn_in));
+    return MP_OBJ_NEW_SMALL_INT(mtu ? mtu : 23);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(evbot_ble_mtu_obj, evbot_ble_mtu);
+
+// Let other tasks run for ms milliseconds, without running scheduled code or
+// raising a pending Ctrl-C (time.sleep_ms does both). evbot_ble waits like
+// this for Bluetooth buffers inside the terminal's write(), where an
+// exception would make MicroPython detach the terminal.
+static mp_obj_t evbot_idle_ms(mp_obj_t ms_in) {
+    MP_THREAD_GIL_EXIT();
+    vTaskDelay(pdMS_TO_TICKS(mp_obj_get_int(ms_in)));
+    MP_THREAD_GIL_ENTER();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(evbot_idle_ms_obj, evbot_idle_ms);
+
+// The C++ library stores the car's name and PIN as NVS strings, which
+// MicroPython's esp32.NVS can't read (it has only int and blob getters).
+// _nvs_str(namespace, key) -> str, or None if it isn't there.
+static mp_obj_t evbot_nvs_str(mp_obj_t ns_in, mp_obj_t key_in) {
+    nvs_handle_t handle;
+    if (nvs_open(mp_obj_str_get_str(ns_in), NVS_READONLY, &handle) != ESP_OK) {
+        return mp_const_none;
+    }
+    char buf[64];
+    size_t len = sizeof(buf);
+    esp_err_t err = nvs_get_str(handle, mp_obj_str_get_str(key_in), buf, &len);
+    nvs_close(handle);
+    if (err != ESP_OK || len == 0) {
+        return mp_const_none;
+    }
+    return mp_obj_new_str(buf, len - 1);  // len counts the trailing 0
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(evbot_nvs_str_obj, evbot_nvs_str);
+
+// _nvs_set_str(namespace, key, value), stored the way the C++ library reads it.
+static mp_obj_t evbot_nvs_set_str(mp_obj_t ns_in, mp_obj_t key_in, mp_obj_t value_in) {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(mp_obj_str_get_str(ns_in), NVS_READWRITE, &handle);
+    if (err == ESP_OK) {
+        err = nvs_set_str(handle, mp_obj_str_get_str(key_in), mp_obj_str_get_str(value_in));
+        if (err == ESP_OK) {
+            err = nvs_commit(handle);
+        }
+        nvs_close(handle);
+    }
+    if (err != ESP_OK) {
+        mp_raise_OSError(err);
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(evbot_nvs_set_str_obj, evbot_nvs_set_str);
+
 static const mp_rom_map_elem_t evbot_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_evbot) },
     { MP_ROM_QSTR(MP_QSTR_EVBot), MP_ROM_PTR(&evbot_type) },
     { MP_ROM_QSTR(MP_QSTR__program_end), MP_ROM_PTR(&evbot_program_end_obj) },
+    { MP_ROM_QSTR(MP_QSTR__emergency_stop), MP_ROM_PTR(&evbot_emergency_stop_obj) },
+    { MP_ROM_QSTR(MP_QSTR__wheels_turning), MP_ROM_PTR(&evbot_wheels_turning_obj) },
+    { MP_ROM_QSTR(MP_QSTR__ble_mtu), MP_ROM_PTR(&evbot_ble_mtu_obj) },
+    { MP_ROM_QSTR(MP_QSTR__idle_ms), MP_ROM_PTR(&evbot_idle_ms_obj) },
+    { MP_ROM_QSTR(MP_QSTR__nvs_str), MP_ROM_PTR(&evbot_nvs_str_obj) },
+    { MP_ROM_QSTR(MP_QSTR__nvs_set_str), MP_ROM_PTR(&evbot_nvs_set_str_obj) },
 
     // Speeds for set_speed() (any number 1-10 works too)
     { MP_ROM_QSTR(MP_QSTR_SLOW), MP_ROM_INT(3) },
