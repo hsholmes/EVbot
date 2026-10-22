@@ -35,6 +35,16 @@ fi
 make -C mpy-cross -j"$(nproc)"
 make -C ports/esp32 BOARD_DIR="$BOARD_DIR" submodules
 
+# Switching the engine on or off changes which names are built into the
+# firmware, and MicroPython doesn't regenerate frozen_content.c for that
+# ("redeclaration of enumerator MP_QSTR_evbot"). Start that build afresh.
+if [ -d "$BUILD" ] && [ "$(cat "$BUILD/.evbot-engine" 2>/dev/null)" != "$WITH_ENGINE" ]; then
+  echo "Engine setting changed - clean build."
+  rm -rf "$BUILD"
+fi
+mkdir -p "$BUILD"
+echo "$WITH_ENGINE" > "$BUILD/.evbot-engine"
+
 args=(BOARD_DIR="$BOARD_DIR")
 if [ "$WITH_ENGINE" = 1 ]; then
   args+=(USER_C_MODULES=/evbot/EVBotPy/firmware/evbot_module/micropython.cmake)

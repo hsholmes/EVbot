@@ -482,6 +482,39 @@ is used instead.
   - Backups are in `firmware/car-backups/` (gitignored): this car's NVS before the
     switch.
 
+## Phase 1 progress (2026-10-22)
+
+- **Shim + engine + binding build:** `arduino_shim/` (Arduino.h/.cpp, Wire, Preferences,
+  WString), `evbot_module/` (modevbot.c tables, evbot_glue.cpp, wireless_mp.cpp,
+  micropython.cmake), built with `build.ps1 -Engine`. The engine compiles from `src/`
+  unchanged, with no warnings. `micropython.bin` is 1.75 MB (+27 KB).
+- Three build fixes were needed:
+  - `freertos/idf_additions.h` for `xTaskCreatePinnedToCore`;
+  - a clean build when the engine setting changes (stale `frozen_content.c` gave
+    "redeclaration of MP_QSTR_evbot");
+  - Docker's `Wsl/Service/CreateInstance/0x80072746` (vpnkit-bridge connection reset)
+    was cleared by restarting the laptop.
+- The quick re-`begin()` needs private EVBot fields. `evbot_glue.cpp` opens them with
+  `#define private public` around `#include "EVBot.h"`, so EVBot.h stays unchanged.
+- **Start-up on the car:**
+  - first `begin()` 7.36 s (full gyro calibration); gyro, both encoder magnets and the
+    step timers are OK;
+  - second `begin()` 2 ms;
+  - battery reads 11.9 V with the main switch on, the light works, and `EVBot()` is a
+    singleton.
+- **First drive (SLOW):**
+
+  | Move | Time | Heading after | Distance after |
+  |---|---|---|---|
+  | `forward(20)` | 1.95 s | +0.11 deg | 20.00 cm |
+  | `turn_left(90)` | 2.06 s | -90.10 deg | |
+  | `turn_right(90)` | 2.04 s | +0.04 deg | |
+  | `backward(20)` | 1.93 s | | 0.01 cm |
+
+  Turns are within 0.1 deg, against 0.3 deg in the C++ SquareTest.
+- Still to do for phase 1: a square test at MEDIUM with a check of the physical
+  distance/turn and the low-speed shiver, and pulse spacing if a scope is available.
+
 ## Answered (2026-10-20)
 
 - Module: N16R8 (16 MB flash, 8 MB octal PSRAM).

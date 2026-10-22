@@ -15,6 +15,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/idf_additions.h"  // xTaskCreatePinnedToCore
 #include "esp_attr.h"
 #include "esp_system.h"
 
