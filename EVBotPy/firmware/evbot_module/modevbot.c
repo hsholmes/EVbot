@@ -5,17 +5,47 @@
 //   robot.begin()
 //   robot.forward(50)
 //
-// Phase 1: begin, moves, light and a few readings. Phase 2 adds the rest
-// (PLAN.md, "Python API").
+// The same commands as the C++ library, in Python naming style (PLAN.md,
+// "Python API"). Bad *values* behave as in C++: "Oops! ..." and a red light,
+// and the program carries on. Wrong *types* or a wrong number of values
+// raise a short TypeError in plain words.
 
+#include "py/mphal.h"
 #include "py/runtime.h"
 #include "evbot_glue.h"
+
+// ---------- helpers ----------
 
 // Moves block in C++. Ctrl-C during one stops the wheels (see the shim's
 // delay()); raise the KeyboardInterrupt here, once C++ has returned.
 static void raise_if_interrupted(void) {
     mp_handle_pending(MP_HANDLE_PENDING_CALLBACKS_AND_EXCEPTIONS);
 }
+
+// n_args counts self, so robot.forward(20) has n_args == 2.
+static void check_count(size_t n_args, size_t lo, size_t hi, const char *example) {
+    if (n_args - 1 < lo || n_args - 1 > hi) {
+        mp_raise_msg_varg(&mp_type_TypeError, MP_ERROR_TEXT("use it like this: robot.%s"), example);
+    }
+}
+
+static mp_float_t number(mp_obj_t o, const char *example) {
+    if (!mp_obj_is_int(o) && !mp_obj_is_float(o)) {
+        mp_raise_msg_varg(&mp_type_TypeError,
+            MP_ERROR_TEXT("that needs a number, like robot.%s (you gave a %s)"), example, mp_obj_get_type_str(o));
+    }
+    return mp_obj_get_float(o);
+}
+
+static mp_int_t whole_number(mp_obj_t o, const char *example) {
+    if (!mp_obj_is_int(o)) {
+        mp_raise_msg_varg(&mp_type_TypeError,
+            MP_ERROR_TEXT("that needs a whole number, like robot.%s (you gave a %s)"), example, mp_obj_get_type_str(o));
+    }
+    return mp_obj_get_int(o);
+}
+
+#define METHOD(name) static MP_DEFINE_CONST_FUN_OBJ_VAR(evbot_##name##_obj, 1, evbot_##name)
 
 // ---------- the EVBot type: EVBot() always returns the same robot ----------
 
@@ -27,89 +57,241 @@ extern const mp_obj_type_t evbot_type;
 static const evbot_obj_t evbot_singleton = {{&evbot_type}};
 
 static mp_obj_t evbot_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
-    mp_arg_check_num(n_args, n_kw, 0, 0, false);
+    if (n_args != 0 || n_kw != 0) {
+        mp_raise_TypeError(MP_ERROR_TEXT("use it like this: robot = EVBot()"));
+    }
     return MP_OBJ_FROM_PTR(&evbot_singleton);
 }
 
-static mp_obj_t evbot_begin(mp_obj_t self) {
+// ---------- getting started ----------
+
+static mp_obj_t evbot_begin(size_t n_args, const mp_obj_t *args) {
+    check_count(n_args, 0, 0, "begin()");
     evbot_glue_begin();
     raise_if_interrupted();
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(evbot_begin_obj, evbot_begin);
+METHOD(begin);
 
-#define EVBOT_MOVE(name)                                            \
-    static mp_obj_t evbot_##name(mp_obj_t self, mp_obj_t amount) {  \
-        evbot_glue_##name(mp_obj_get_float(amount));                \
-        raise_if_interrupted();                                     \
-        return mp_const_none;                                       \
-    }                                                               \
-    static MP_DEFINE_CONST_FUN_OBJ_2(evbot_##name##_obj, evbot_##name);
+// ---------- level 1: moving ----------
 
-EVBOT_MOVE(forward)
-EVBOT_MOVE(backward)
-EVBOT_MOVE(turn_left)
-EVBOT_MOVE(turn_right)
+#define MOVE(name, example)                                          \
+    static mp_obj_t evbot_##name(size_t n_args, const mp_obj_t *args) { \
+        check_count(n_args, 1, 1, example);                          \
+        mp_float_t amount = number(args[1], example);                \
+        evbot_glue_clear_interrupt();                                \
+        evbot_glue_##name(amount);                                   \
+        raise_if_interrupted();                                      \
+        return mp_const_none;                                        \
+    }                                                                \
+    METHOD(name);
 
-static mp_obj_t evbot_set_speed(mp_obj_t self, mp_obj_t speed) {
-    evbot_glue_set_speed(mp_obj_get_int(speed));
+MOVE(forward, "forward(20)")
+MOVE(backward, "backward(20)")
+MOVE(turn_left, "turn_left(90)")
+MOVE(turn_right, "turn_right(90)")
+
+static mp_obj_t evbot_set_speed(size_t n_args, const mp_obj_t *args) {
+    check_count(n_args, 1, 1, "set_speed(5)");
+    evbot_glue_set_speed(whole_number(args[1], "set_speed(5)"));
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_2(evbot_set_speed_obj, evbot_set_speed);
+METHOD(set_speed);
 
-static mp_obj_t evbot_stop(mp_obj_t self) {
+// Not the C++ wait(): MicroPython's own delay lets Ctrl-C, Bluetooth and
+// scheduled callbacks through while it waits.
+static mp_obj_t evbot_wait(size_t n_args, const mp_obj_t *args) {
+    check_count(n_args, 1, 1, "wait(0.5)");
+    mp_float_t seconds = number(args[1], "wait(0.5)");
+    if (seconds < 0) {
+        evbot_glue_wait_oops(seconds);
+        return mp_const_none;
+    }
+    mp_hal_delay_ms((mp_uint_t)(seconds * 1000));
+    return mp_const_none;
+}
+METHOD(wait);
+
+static mp_obj_t evbot_stop(size_t n_args, const mp_obj_t *args) {
+    check_count(n_args, 0, 0, "stop()");
     evbot_glue_stop();
     raise_if_interrupted();
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(evbot_stop_obj, evbot_stop);
+METHOD(stop);
+
+// ---------- level 2: senses ----------
 
 // light(color) or light(red, green, blue)
 static mp_obj_t evbot_light(size_t n_args, const mp_obj_t *args) {
     if (n_args == 2) {
-        evbot_glue_light((uint32_t)mp_obj_get_int(args[1]));
+        evbot_glue_light((uint32_t)whole_number(args[1], "light(GREEN)"));
     } else if (n_args == 4) {
-        evbot_glue_light_rgb(mp_obj_get_int(args[1]), mp_obj_get_int(args[2]), mp_obj_get_int(args[3]));
+        evbot_glue_light_rgb(whole_number(args[1], "light(255, 0, 255)"),
+            whole_number(args[2], "light(255, 0, 255)"),
+            whole_number(args[3], "light(255, 0, 255)"));
     } else {
-        mp_raise_TypeError(MP_ERROR_TEXT("light() needs a color, like light(GREEN), or red, green, blue"));
+        mp_raise_TypeError(MP_ERROR_TEXT("use it like this: robot.light(GREEN) or robot.light(255, 0, 255)"));
     }
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(evbot_light_obj, 2, 4, evbot_light);
+METHOD(light);
 
-static mp_obj_t evbot_button_pressed(mp_obj_t self) {
+static mp_obj_t evbot_button_pressed(size_t n_args, const mp_obj_t *args) {
+    check_count(n_args, 0, 0, "button_pressed()");
     return mp_obj_new_bool(evbot_glue_button_pressed());
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(evbot_button_pressed_obj, evbot_button_pressed);
+METHOD(button_pressed);
 
-static mp_obj_t evbot_heading(mp_obj_t self) {
-    return mp_obj_new_float(evbot_glue_heading());
+// Not the C++ waitForButton(): its loop would never end once Ctrl-C has
+// locked the wheels. mp_hal_delay_ms raises the KeyboardInterrupt instead.
+static mp_obj_t evbot_wait_for_button(size_t n_args, const mp_obj_t *args) {
+    check_count(n_args, 0, 0, "wait_for_button()");
+    mp_printf(&mp_plat_print, "[EVBot] Press the START button...\n");
+    while (!evbot_glue_button_pressed()) {
+        mp_hal_delay_ms(10);
+    }
+    while (evbot_glue_button_pressed()) {  // wait for release, so the press doesn't bump the car mid-move
+        mp_hal_delay_ms(10);
+    }
+    mp_hal_delay_ms(300);
+    return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(evbot_heading_obj, evbot_heading);
+METHOD(wait_for_button);
 
-static mp_obj_t evbot_distance(mp_obj_t self) {
-    return mp_obj_new_float(evbot_glue_distance());
-}
-static MP_DEFINE_CONST_FUN_OBJ_1(evbot_distance_obj, evbot_distance);
+#define READING(name)                                                \
+    static mp_obj_t evbot_##name(size_t n_args, const mp_obj_t *args) { \
+        check_count(n_args, 0, 0, #name "()");                       \
+        return mp_obj_new_float(evbot_glue_##name());                \
+    }                                                                \
+    METHOD(name);
 
-static mp_obj_t evbot_battery(mp_obj_t self) {
-    return mp_obj_new_float(evbot_glue_battery());
+READING(heading)
+READING(distance)
+READING(battery)
+
+// say(anything), or say(label, number) -> "label: 12.34". Decimals are shown
+// with 2 places, as in C++. print() works too.
+static void say_value(const mp_print_t *print, mp_obj_t o) {
+    if (mp_obj_is_float(o)) {
+        mp_printf(print, "%.2f", (double)mp_obj_get_float(o));
+    } else {
+        mp_obj_print_helper(print, o, PRINT_STR);
+    }
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(evbot_battery_obj, evbot_battery);
+
+static mp_obj_t evbot_say(size_t n_args, const mp_obj_t *args) {
+    if (n_args == 3 && mp_obj_is_str(args[1]) && (mp_obj_is_int(args[2]) || mp_obj_is_float(args[2]))) {
+        mp_obj_print_helper(&mp_plat_print, args[1], PRINT_STR);
+        mp_printf(&mp_plat_print, ": %.2f\n", (double)mp_obj_get_float(args[2]));
+        return mp_const_none;
+    }
+    for (size_t i = 1; i < n_args; i++) {
+        if (i > 1) {
+            mp_print_str(&mp_plat_print, " ");
+        }
+        say_value(&mp_plat_print, args[i]);
+    }
+    mp_print_str(&mp_plat_print, "\n");
+    return mp_const_none;
+}
+METHOD(say);
+
+// ---------- level 3: explorer ----------
+
+static mp_obj_t evbot_drive(size_t n_args, const mp_obj_t *args) {
+    check_count(n_args, 2, 2, "drive(5, 5)");
+    mp_float_t left = number(args[1], "drive(5, 5)");
+    mp_float_t right = number(args[2], "drive(5, 5)");
+    evbot_glue_clear_interrupt();
+    evbot_glue_drive(left, right);
+    raise_if_interrupted();
+    return mp_const_none;
+}
+METHOD(drive);
+
+#define NO_ARGS(name, example)                                       \
+    static mp_obj_t evbot_##name(size_t n_args, const mp_obj_t *args) { \
+        check_count(n_args, 0, 0, example);                          \
+        evbot_glue_clear_interrupt();                                \
+        evbot_glue_##name();                                         \
+        raise_if_interrupted();                                      \
+        return mp_const_none;                                        \
+    }                                                                \
+    METHOD(name);
+
+NO_ARGS(spin_left, "spin_left()")
+NO_ARGS(spin_right, "spin_right()")
+
+#define ARC(name, example)                                           \
+    static mp_obj_t evbot_##name(size_t n_args, const mp_obj_t *args) { \
+        check_count(n_args, 2, 2, example);                          \
+        mp_float_t radius = number(args[1], example);                \
+        mp_float_t degrees = number(args[2], example);               \
+        evbot_glue_clear_interrupt();                                \
+        evbot_glue_##name(radius, degrees);                          \
+        raise_if_interrupted();                                      \
+        return mp_const_none;                                        \
+    }                                                                \
+    METHOD(name);
+
+ARC(arc_left, "arc_left(30, 90)")
+ARC(arc_right, "arc_right(30, 90)")
+
+#define RESET(name)                                                  \
+    static mp_obj_t evbot_##name(size_t n_args, const mp_obj_t *args) { \
+        check_count(n_args, 0, 0, #name "()");                       \
+        evbot_glue_##name();                                         \
+        return mp_const_none;                                        \
+    }                                                                \
+    METHOD(name);
+
+RESET(reset_distance)
+RESET(reset_heading)
+
+// beep() or beep(frequency, seconds)
+static mp_obj_t evbot_beep(size_t n_args, const mp_obj_t *args) {
+    if (n_args != 1 && n_args != 3) {
+        mp_raise_TypeError(MP_ERROR_TEXT("use it like this: robot.beep() or robot.beep(440, 0.5)"));
+    }
+    evbot_glue_clear_interrupt();
+    if (n_args == 1) {
+        evbot_glue_beep();
+    } else {
+        evbot_glue_beep_note(number(args[1], "beep(440, 0.5)"), number(args[2], "beep(440, 0.5)"));
+    }
+    raise_if_interrupted();
+    return mp_const_none;
+}
+METHOD(beep);
 
 static const mp_rom_map_elem_t evbot_locals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_begin), MP_ROM_PTR(&evbot_begin_obj) },
+    // level 1
     { MP_ROM_QSTR(MP_QSTR_forward), MP_ROM_PTR(&evbot_forward_obj) },
     { MP_ROM_QSTR(MP_QSTR_backward), MP_ROM_PTR(&evbot_backward_obj) },
     { MP_ROM_QSTR(MP_QSTR_turn_left), MP_ROM_PTR(&evbot_turn_left_obj) },
     { MP_ROM_QSTR(MP_QSTR_turn_right), MP_ROM_PTR(&evbot_turn_right_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_speed), MP_ROM_PTR(&evbot_set_speed_obj) },
+    { MP_ROM_QSTR(MP_QSTR_wait), MP_ROM_PTR(&evbot_wait_obj) },
     { MP_ROM_QSTR(MP_QSTR_stop), MP_ROM_PTR(&evbot_stop_obj) },
+    // level 2
     { MP_ROM_QSTR(MP_QSTR_light), MP_ROM_PTR(&evbot_light_obj) },
     { MP_ROM_QSTR(MP_QSTR_button_pressed), MP_ROM_PTR(&evbot_button_pressed_obj) },
+    { MP_ROM_QSTR(MP_QSTR_wait_for_button), MP_ROM_PTR(&evbot_wait_for_button_obj) },
     { MP_ROM_QSTR(MP_QSTR_heading), MP_ROM_PTR(&evbot_heading_obj) },
     { MP_ROM_QSTR(MP_QSTR_distance), MP_ROM_PTR(&evbot_distance_obj) },
     { MP_ROM_QSTR(MP_QSTR_battery), MP_ROM_PTR(&evbot_battery_obj) },
+    { MP_ROM_QSTR(MP_QSTR_say), MP_ROM_PTR(&evbot_say_obj) },
+    // level 3
+    { MP_ROM_QSTR(MP_QSTR_drive), MP_ROM_PTR(&evbot_drive_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spin_left), MP_ROM_PTR(&evbot_spin_left_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spin_right), MP_ROM_PTR(&evbot_spin_right_obj) },
+    { MP_ROM_QSTR(MP_QSTR_arc_left), MP_ROM_PTR(&evbot_arc_left_obj) },
+    { MP_ROM_QSTR(MP_QSTR_arc_right), MP_ROM_PTR(&evbot_arc_right_obj) },
+    { MP_ROM_QSTR(MP_QSTR_reset_distance), MP_ROM_PTR(&evbot_reset_distance_obj) },
+    { MP_ROM_QSTR(MP_QSTR_reset_heading), MP_ROM_PTR(&evbot_reset_heading_obj) },
+    { MP_ROM_QSTR(MP_QSTR_beep), MP_ROM_PTR(&evbot_beep_obj) },
 };
 static MP_DEFINE_CONST_DICT(evbot_locals_dict, evbot_locals_table);
 

@@ -524,6 +524,48 @@ is used instead.
   analyser is left, and it's optional; do it if one turns up. That includes measuring
   pulse gaps during a file save, from the risk table.
 
+## Phase 2 results (2026-10-22) - done
+
+- **The whole API is bound** (`modevbot.c` + `evbot_glue.cpp`): begin, forward, backward,
+  turn_left/right, set_speed, wait, stop, light, button_pressed, wait_for_button,
+  heading, distance, battery, say, drive, spin_left/right, arc_left/right,
+  reset_distance/heading, beep.
+  - `wait` and `wait_for_button` are written in C with `mp_hal_delay_ms`.
+  - `say` is done in C: 2 decimals, `say(label, n)` gives `label: n.nn`.
+- **Lockout rule:** the shim's `delay()` sets the lockout when Ctrl-C is pending, and
+  every new move command clears it first. So a Ctrl-C ends only the move that was
+  running, and the Live prompt never gets stuck.
+- **Errors:**
+  - Wrong types or counts raise a plain-words `TypeError`, e.g. `that needs a number,
+    like robot.forward(20) (you gave a str)`.
+  - The library's "Oops!" lines are reworded to Python names (`turnLeft` ->
+    `turn_left`, and "put robot.begin() at the start of your program first") by
+    `arduino_shim_rewrite()` in the glue.
+- **Checked on the car:**
+  - all messages and timings (`wait(0.25)` = 251 ms);
+  - drive and spins with a smooth stop;
+  - `arc_left(30, 90)` drove 46.8 cm (47.1 cm expected) and ended at 90.05 deg.
+- **Stop tests (car-side timestamps):**
+
+  | Test | Result |
+  |---|---|
+  | Ctrl-C in `forward(200)` | stops at once, about 1 mm roll-out |
+  | Ctrl-C in `turn_left(720)` | wheels stop at once; returns after the 100 ms settle |
+  | Ctrl-C in `wait_for_button()` | out within 1 ms |
+  | Ctrl-C during an `evbot_run` program | stops |
+  | error mid-`drive()` | car stops; the traceback names `t_err.py` line 7 |
+  | program ends during `drive()` | car stops |
+
+  Every case was ready for the next command.
+- **Build note:** `docker-build.sh` deletes `frozen_content.c` before every build.
+  MicroPython doesn't regenerate it when C code adds a name that frozen Python also
+  uses ("redeclaration of enumerator MP_QSTR_wait").
+- **For phase 4:**
+  - Tracebacks start with `File "evbot_run.py", line 57, in run`. The page should hide
+    that line.
+  - Ctrl-C at the bare REPL leaves a `drive()` running, by design, so Live's Stop sends
+    `robot.stop()` as well.
+
 ## Answered (2026-10-20)
 
 - Module: N16R8 (16 MB flash, 8 MB octal PSRAM).

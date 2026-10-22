@@ -11,6 +11,8 @@
 #include "EVBot.h"
 #undef private
 
+#include <string>
+
 #include "internal/Gyro.h"
 #include "internal/Steppers.h"
 #include "evbot_glue.h"
@@ -24,6 +26,29 @@ EVBot robot;
 bool engineStarted = false;
 
 }  // namespace
+
+// The library's "Oops!" messages name its C++ commands. Students here write
+// Python, so print the Python names instead (turnLeft -> turn_left, ...).
+void arduino_shim_rewrite(std::string &text) {
+  static const char *const names[][2] = {
+    {"setSpeed", "set_speed"},
+    {"turnLeft", "turn_left"},
+    {"turnRight", "turn_right"},
+    {"spinLeft", "spin_left"},
+    {"spinRight", "spin_right"},
+    {"arcLeft", "arc_left"},
+    {"arcRight", "arc_right"},
+    {"resetDistance", "reset_distance"},
+    {"resetHeading", "reset_heading"},
+    {"waitForButton", "wait_for_button"},
+    {"buttonPressed", "button_pressed"},
+    {"put robot.begin(); at the start of setup() first", "put robot.begin() at the start of your program first"},
+  };
+  for (const auto &n : names) {
+    size_t at;
+    while ((at = text.find(n[0])) != std::string::npos) text.replace(at, strlen(n[0]), n[1]);
+  }
+}
 
 // Called by the shim's delay() when Ctrl-C or STOP is waiting: stop the
 // wheels so the engine's move loop ends by itself.
@@ -50,6 +75,10 @@ void evbot_glue_begin(void) {
   Serial.println("[EVBot] Ready!");
 }
 
+void evbot_glue_clear_interrupt(void) {
+  if (engineStarted) evbot::steppers::lockout(false);
+}
+
 void evbot_glue_forward(float cm) { robot.forward(cm); }
 void evbot_glue_backward(float cm) { robot.backward(cm); }
 void evbot_glue_turn_left(float degrees) { robot.turnLeft(degrees); }
@@ -62,6 +91,17 @@ bool evbot_glue_button_pressed(void) { return robot.buttonPressed(); }
 float evbot_glue_heading(void) { return robot.heading(); }
 float evbot_glue_distance(void) { return robot.distance(); }
 float evbot_glue_battery(void) { return robot.battery(); }
+
+void evbot_glue_drive(float left, float right) { robot.drive(left, right); }
+void evbot_glue_spin_left(void) { robot.spinLeft(); }
+void evbot_glue_spin_right(void) { robot.spinRight(); }
+void evbot_glue_arc_left(float radius_cm, float degrees) { robot.arcLeft(radius_cm, degrees); }
+void evbot_glue_arc_right(float radius_cm, float degrees) { robot.arcRight(radius_cm, degrees); }
+void evbot_glue_reset_distance(void) { robot.resetDistance(); }
+void evbot_glue_reset_heading(void) { robot.resetHeading(); }
+void evbot_glue_beep(void) { robot.beep(); }
+void evbot_glue_beep_note(float frequency, float seconds) { robot.beep(frequency, seconds); }
+void evbot_glue_wait_oops(float seconds) { robot.wait(seconds); }
 
 void evbot_glue_program_end(void) {
   if (engineStarted) robot.stop();

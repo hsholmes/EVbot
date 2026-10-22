@@ -28,6 +28,11 @@ ShimSerial Serial;
 // module defines it.
 extern "C" void __attribute__((weak)) arduino_shim_interrupt_pending(void) {}
 
+// Lets the evbot module reword text the library prints (its "Oops!" messages
+// name the C++ commands). Weak: prints the text unchanged until the module
+// defines it.
+void __attribute__((weak)) arduino_shim_rewrite(std::string &text) { (void)text; }
+
 // ---------- time ----------
 
 unsigned long millis() { return (unsigned long)(esp_timer_get_time() / 1000ULL); }
@@ -175,9 +180,10 @@ void IRAM_ATTR timerAlarm(hw_timer_t *timer, uint64_t alarm_value, bool autorelo
 // ---------- Serial ----------
 
 size_t ShimSerial::print(const char *text) {
-  size_t len = strlen(text);
-  mp_hal_stdout_tx_strn_cooked(text, len);
-  return len;
+  std::string out(text);
+  arduino_shim_rewrite(out);
+  mp_hal_stdout_tx_strn_cooked(out.c_str(), out.size());
+  return out.size();
 }
 
 size_t ShimSerial::print(char c) { return print(String(c).c_str()); }
